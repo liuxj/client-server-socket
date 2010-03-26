@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <sys/types.h>
 
 #include "common.h"
 
@@ -14,7 +15,9 @@ int main(void)
 	socklen_t cliaddr_len;
 	int listenfd, connfd;
 	char buf[MAXLINE], buf_client[MAXLINE];
-	int i, n, x, on;
+	int i, n, x, on, t, check = 0;
+    pid_t pid;
+    
 /* ===========socket============== */
 	if((listenfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
         perror("socket:");
@@ -40,27 +43,47 @@ int main(void)
         cliaddr_len = sizeof(cliaddr);
         connfd = accept(listenfd, (struct sockaddr *)&cliaddr, &cliaddr_len);
         while(1) {
-            memset(buf, 0, MAXLINE);
-            n = read(connfd, buf, MAXLINE);
-
-            if(!strcmp(buf,EXIT_MSG)) {
-                printf("\n---GET \"EXIT_MSG\" from client, client exit!--<<<\n\n");
-                close(connfd);        
-                break;
-            }
-            printf("\n---message from client--->>>\n%s\n", buf);
-            x = strlen(buf);
-
-            memset(buf_client, 0, MAXLINE);
-            for (i = 0; x>=0; x--, i++)
-                buf_client[i] = buf[x];
-            if((write(connfd, buf_client, n)) == -1) {
-                perror("write_1:");
-                close(connfd);
+            pid = fork();
+            if(pid < 0) {
+                perror("error in fork:");
                 exit(1);
             }
-            memset(buf, 0, MAXLINE);
-            memset(buf_client, 0, MAXLINE);
+            else if(pid == 0) {
+                printf("This is child progress, id is %d\n", getpid());
+                memset(buf, 0, MAXLINE);
+                n = read(connfd, buf, MAXLINE);
+
+                check = 1;
+                if(!strcmp(buf,EXIT_MSG)) {
+                    printf("\n---GET \"EXIT_MSG\" from client, client exit!--<<<\n\n");
+                    close(connfd);        
+                    break;
+                }
+                printf("\n---message from client--->>>\n%s\n", buf);
+                x = strlen(buf);
+
+                memset(buf_client, 0, MAXLINE);
+                for (i = 0; x>=0; x--, i++)
+                    buf_client[i] = buf[x];
+                if((write(connfd, buf_client, n)) == -1) {
+                    perror("write_1:");
+                    close(connfd);
+                    exit(1);
+                }
+                memset(buf, 0, MAXLINE);
+                memset(buf_client, 0, MAXLINE);
+                t = 5;
+                check = 0;
+            }
+            else {
+                printf("This is parent progess, id is %d\n", getpid());
+                for(t=5; check==0, t>0; t--) {
+                    printf("%d\n",t);
+                    sleep(1);
+                    exit(1);
+                }
+            }
+/* --------------------------- */
         }
         close(connfd);
     }
