@@ -35,11 +35,11 @@ int main(int argc, char *argv[])
         exit(1);
     }
     while(1) {
-        printf("\n\n---input message-->>>:\n");
+        printf("\n\n---input message:\n");
         memset(buf, 0, sizeof(buf));
         scanf("%s",buf);
         if(sizeof(buf) > MAXLINE) {
-            printf("\n!!! message is too large !!!\n\n");
+            printf("\n*** message is too large*** \n\n");
             close(sockfd);
             exit(1);
         }
@@ -49,7 +49,7 @@ int main(int argc, char *argv[])
             exit(1);
         }
         if(!strcmp(buf,EXIT_MSG)) {
-            printf("\n---GET \"EXIT_MSG\", exit !--<<<\n\n");
+            printf("\n---GET \"EXIT_MSG\", exit !--\n\n");
             close(sockfd);
             exit(1);
         }
