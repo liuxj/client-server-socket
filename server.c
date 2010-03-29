@@ -8,8 +8,6 @@
 #include <sys/types.h>
 #include <sys/time.h>
 
-
-
 #include "common.h"
 int main(void)
 {
@@ -17,11 +15,13 @@ int main(void)
     struct timeval tv;
     
 	socklen_t cliaddr_len;
-	int listenfd, connfd;
+	int listenfd, new_fd;
 	char buf[MAXLINE], buf_client[MAXLINE];
-	int i, n, x, on, t, ret;
+	int i, n, x, on,ret;
     fd_set clientfd;
-    
+    int maxsock;
+
+
     
 /* ===========socket============== */
 	if((listenfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
@@ -43,53 +43,67 @@ int main(void)
 	}
 /* ============listen============= */
     listen(listenfd, 20);
-
+    printf("~~~listen connections:\n");
+    int conn_amount = 0;
+    maxsock = listenfd;
     while(1) {
-        printf("~~~listen connections:\n");
+        FD_ZERO(&clientfd);
+        FD_SET(listenfd, &clientfd);
+
+        tv.tv_sec = TIME_SEC;
+        tv.tv_usec = TIME_USEC;
         cliaddr_len = sizeof(cliaddr);
-        connfd = accept(listenfd, (struct sockaddr *)&cliaddr, &cliaddr_len);
-        printf("---connected---\n\n");
-        
-        if(connfd<0) {
-            perror("Server accept:");
+
+        ret = select(maxsock+1, &clientfd, NULL, NULL, &tv);
+        if(ret<0) {
+            perror("select:");
             break;
         }
-        while(1) {
-            memset(buf, 0, MAXLINE);
-            FD_ZERO(&clientfd);
-            FD_SET(connfd, &clientfd);
-            tv.tv_sec = TIME_SEC;
-            tv.tv_usec = TIME_USEC;
-            ret = select(connfd+1, &clientfd, NULL, NULL, &tv);
-            if(ret<0) {
-                perror("select:");
-                exit(1);
+        else if(ret == 0) {
+            printf("***Timeout, connection canceled***\n");
+            continue;
+        }
+        if(FD_ISSET(listenfd, &clientfd)) {
+            new_fd=accept(listenfd,(struct sockaddr*)&cliaddr, &cliaddr_len);
+            if(new_fd<=0) {
+                perror("accept");
+                continue;
             }
-            else if(ret == 0) {
-                printf("***Timeout, connection canceled***\n");
-                break;
+            if(conn_amount<FDCOUNT) {
+                FD_SET(new_fd, &clientfd);
+                printf("new connection client %d\n", new_fd);
+                if(new_fd>maxsock)
+                    maxsock = new_fd;
             }
             else {
-                n = read(connfd, buf, MAXLINE);
-                if(!strcmp(buf,EXIT_MSG)) {
-                    printf("\n---GET \"EXIT_MSG\" from client, client exit!--\n\n");
-                    break;
-                }
-                printf("\n---message from client---\n%s\n", buf);
-                x = strlen(buf);
-                memset(buf_client, 0, MAXLINE);
-                for (i = 0; x>=0; x--, i++)
-                    buf_client[i] = buf[x];
-                if((write(connfd, buf_client, n)) == -1) {
-                    perror("write_1:");
-                    exit(1);
-                }
-                memset(buf, 0, MAXLINE);
-                memset(buf_client, 0, MAXLINE);
+                printf("max connections arrive, exit\n");
+                send(new_fd, "bye", 4, 0);
+                close(new_fd);
+                break;
             }
         }
-        close(connfd);
+        memset(buf, 0, MAXLINE);
+        n = read(new_fd, buf, MAXLINE);
+        if(n==0) {
+            printf("client exit.\n");
+            continue;
+        }
+        if(!strcmp(buf,EXIT_MSG)) {
+            printf("\n---GET \"EXIT_MSG\" from client, client exit!--\n\n");
+            continue;
+        }
+        printf("\n---message from client---\n%s\n", buf);
+        x = strlen(buf);
+        memset(buf_client, 0, MAXLINE);
+        for (i = 0; x>=0; x--, i++)
+            buf_client[i] = buf[x];
+        if((write(new_fd, buf_client, n)) == -1) {
+            perror("write_1:");
+            exit(1);
+        }
+        memset(buf, 0, MAXLINE);
+        memset(buf_client, 0, MAXLINE);
     }
     close(listenfd);
-	return 0;
+    exit(0);
 }

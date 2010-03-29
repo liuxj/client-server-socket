@@ -9,7 +9,7 @@
 
 CLIENT_OBJS = client.o
 SERVER_OBJS = server.o
-
+CFLAGS = -Wall -g
 all: client server
 
 .c.o:
