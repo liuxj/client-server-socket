@@ -56,8 +56,8 @@ int main(int argc, char *argv[])
         else {
             memset(buf, 0, MAXLINE);
             n = read(sockfd, buf, MAXLINE);
-            if(n == -1) {
-                perror("read:");
+            if(n <= 0) {
+                printf("***Timeout, disconnected, client exit***\n");
                 close(sockfd);
                 exit(1);
             }

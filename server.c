@@ -66,7 +66,7 @@ int main(void)
                 exit(1);
             }
             else if(ret == 0) {
-                printf("***Timeout, connection cancel***\n");
+                printf("***Timeout, connection canceled***\n");
                 break;
             }
             else {
