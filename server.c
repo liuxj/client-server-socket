@@ -17,11 +17,9 @@ int main(void)
 	socklen_t cliaddr_len;
 	int listenfd, new_fd;
 	char buf[MAXLINE], buf_client[MAXLINE];
-	int i, n, x, on,ret;
+	int i, j, n, x, on,ret;
     fd_set clientfd;
     int maxsock;
-
-
     
 /* ===========socket============== */
 	if((listenfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
@@ -45,15 +43,23 @@ int main(void)
     listen(listenfd, 20);
     printf("~~~listen connections:\n");
     int conn_amount = 0;
+    int fd_a[FDCOUNT];
     maxsock = listenfd;
+    for(i=0;i<FDCOUNT;i++) {
+        fd_a[i] = -1;
+    }
+    
     while(1) {
         FD_ZERO(&clientfd);
         FD_SET(listenfd, &clientfd);
-
         tv.tv_sec = TIME_SEC;
         tv.tv_usec = TIME_USEC;
+        
+        for(i=0;i<FDCOUNT;i++) {
+            if(fd_a[i] != -1)
+                FD_SET(fd_a[i], &clientfd);
+        }
         cliaddr_len = sizeof(cliaddr);
-
         ret = select(maxsock+1, &clientfd, NULL, NULL, &tv);
         if(ret<0) {
             perror("select:");
@@ -61,48 +67,69 @@ int main(void)
         }
         else if(ret == 0) {
             printf("***Timeout, connection canceled***\n");
+            for(i=0;i<FDCOUNT;i++) {
+                if(fd_a[i] != -1) {
+                    close(fd_a[i]);
+                    FD_CLR(fd_a[i], &clientfd);
+                    fd_a[i] = -1;
+                }
+            }
+            conn_amount = 0;
             continue;
         }
-        if(FD_ISSET(listenfd, &clientfd)) {
-            new_fd=accept(listenfd,(struct sockaddr*)&cliaddr, &cliaddr_len);
-            if(new_fd<=0) {
-                perror("accept");
-                continue;
+        else if(FD_ISSET(listenfd, &clientfd)){
+            new_fd=accept(listenfd,(struct sockaddr*)&cliaddr, &cliaddr_len) ;
+            if(new_fd>0) {
+                
+                for(i=0;i<FDCOUNT;i++) {
+                    if(fd_a[i] != -1)
+                        continue;
+                    fd_a[i] = new_fd;
+                    break;
+                }
+                if(conn_amount<FDCOUNT) {
+                    FD_SET(new_fd, &clientfd);
+                    printf("new connection client %d\n", new_fd);
+                    if(new_fd>maxsock)
+                        maxsock = new_fd;
+                    conn_amount++;
+                }
+                else {
+                    printf("***max connections arrive, disconnect***\n");
+                    close(new_fd);
+                    continue;
+                }
             }
-            if(conn_amount<FDCOUNT) {
-                FD_SET(new_fd, &clientfd);
-                printf("new connection client %d\n", new_fd);
-                if(new_fd>maxsock)
-                    maxsock = new_fd;
+        }
+        else {
+            for(i=0;i<FDCOUNT;i++) {
+                if(fd_a[i] == -1)
+                    continue;
+                if(!FD_ISSET(fd_a[i], &clientfd))
+                    continue;
+                memset(buf, 0, MAXLINE);
+                n = read(fd_a[i], buf, MAXLINE);
+                if(n<=0 || !strcmp(buf, EXIT_MSG)) {
+                    printf("client exit.id = %d\n", fd_a[i]);
+                    close(fd_a[i]);
+                    FD_CLR(fd_a[i], &clientfd);
+                    fd_a[i] = -1;
+                    conn_amount--;
+                    continue;
+                }
+                printf("\n---message from client---%d\n%s\n", fd_a[i], buf);
+                x = strlen(buf);
+                memset(buf_client, 0, MAXLINE);
+                for (j = 0; x>=0; x--, j++)
+                    buf_client[j] = buf[x];
+                if((write(fd_a[i], buf_client, n)) == -1) {
+                    perror("write_1:");
+                    exit(1);
+                }
+                memset(buf, 0, MAXLINE);
+                memset(buf_client, 0, MAXLINE);
             }
-            else {
-                printf("max connections arrive, exit\n");
-                send(new_fd, "bye", 4, 0);
-                close(new_fd);
-                break;
-            }
         }
-        memset(buf, 0, MAXLINE);
-        n = read(new_fd, buf, MAXLINE);
-        if(n==0) {
-            printf("client exit.\n");
-            continue;
-        }
-        if(!strcmp(buf,EXIT_MSG)) {
-            printf("\n---GET \"EXIT_MSG\" from client, client exit!--\n\n");
-            continue;
-        }
-        printf("\n---message from client---\n%s\n", buf);
-        x = strlen(buf);
-        memset(buf_client, 0, MAXLINE);
-        for (i = 0; x>=0; x--, i++)
-            buf_client[i] = buf[x];
-        if((write(new_fd, buf_client, n)) == -1) {
-            perror("write_1:");
-            exit(1);
-        }
-        memset(buf, 0, MAXLINE);
-        memset(buf_client, 0, MAXLINE);
     }
     close(listenfd);
     exit(0);
