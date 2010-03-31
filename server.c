@@ -9,6 +9,7 @@
 #include <sys/time.h>
 
 #include "common.h"
+
 int main(void)
 {
 	struct sockaddr_in servaddr, cliaddr;
@@ -22,10 +23,7 @@ int main(void)
 	int maxsock, timeuse[FDCOUNT];
 	
 /* ===========socket============== */
-	if((listenfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-		perror("socket:");
-		exit(1);
-	}
+	listenfd = Socket(AF_INET, SOCK_STREAM, 0);
 /* ==========允许地址立即使用======== */
 	on = 1;
 	setsockopt( listenfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
@@ -35,12 +33,10 @@ int main(void)
 	servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
 	servaddr.sin_port = htons(SERV_PORT);
 /* ==============bind============= */
-	if((bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr))) == -1) {
-		perror("binding:");
-		exit(1);
-	}
+	Bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr));
 /* ============listen============= */
-	listen(listenfd, 20);
+	Listen(listenfd, 20);
+
 	printf("~~~listen connections:\n");
 	int conn_amount = 0;
 	int fd_a[FDCOUNT];
@@ -77,7 +73,7 @@ int main(void)
 			continue;
 		}
 		else if(FD_ISSET(listenfd, &clientfd)){
-			new_fd=accept(listenfd,(struct sockaddr*)&cliaddr, &cliaddr_len) ;
+			new_fd=Accept(listenfd,(struct sockaddr*)&cliaddr, cliaddr_len) ;
 			if(new_fd>0) {
 				for(i=0;i<FDCOUNT;i++) {
 					if(fd_a[i] != -1)
@@ -134,7 +130,6 @@ int main(void)
 				}
 				else 
 					timeuse[i] = start.tv_sec;
-				/* ------------------------- */
 				x = strlen(buf);
 				memset(buf_client, 0, MAXLINE);
 				for (j = 0; x>=0; x--, j++)

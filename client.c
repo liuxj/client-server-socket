@@ -20,20 +20,15 @@ int main(int argc, char *argv[])
         exit(1);
     }
 /* ============sockfd============ */
-    if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-        perror("socket:");
-        exit(1);
-    }
+    sockfd = Socket(AF_INET, SOCK_STREAM, 0);
+
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = inet_addr(argv[1]);
     servaddr.sin_port = htons(SERV_PORT);
 /* ============connect============ */
-    if((connect(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr))) == -1) {
-        perror("server is not open or connect:");
-        close(sockfd);
-        exit(1);
-    }
+    Connect(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr));
+
     while(1) {
         printf("\n\n---input message:\n");
         memset(buf, 0, sizeof(buf));
