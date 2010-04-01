@@ -13,7 +13,7 @@
 int main(void)
 {
 	struct sockaddr_in servaddr, cliaddr;
-	struct timeval start;
+	struct timeval tv, start;
     
 	socklen_t cliaddr_len;
 	int listenfd, new_fd;
@@ -42,28 +42,43 @@ int main(void)
 	int fd_a[FDCOUNT];
 	maxsock = listenfd;
 	for(i=0;i<FDCOUNT;i++) {
+		gettimeofday(&start, NULL);
 		fd_a[i] = -1;
-		timeuse[i] = 0;
+		timeuse[i] = start.tv_sec;
 	}
 	
 	while(1) {
 		FD_ZERO(&clientfd);
 		FD_SET(listenfd, &clientfd);
-        
+		tv.tv_sec = TIME_SEC;
+		tv.tv_usec = TIME_USEC;
+
 		for(i=0;i<FDCOUNT;i++) {
 			if(fd_a[i] != -1)
 				FD_SET(fd_a[i], &clientfd);
 		}
 		cliaddr_len = sizeof(cliaddr);
-		ret = select(maxsock+1, &clientfd, NULL, NULL, NULL);
+		ret = select(maxsock+1, &clientfd, NULL, NULL, &tv);
+		/* check timeout */
+		for(i=0;i<FDCOUNT;i++) {
+			gettimeofday(&start, NULL);
+			timeuse[i] = start.tv_sec - timeuse[i];
+			if(fd_a[i] !=-1 && timeuse[i] > TIME_SEC) {
+				printf("***Client Timeout, id = %d\n", fd_a[i]);
+				close(fd_a[i]);
+				FD_CLR(fd_a[i], &clientfd);
+				fd_a[i] = -1;
+				timeuse[i] = 0;
+			}
+		}
 		if(ret<0) {
 			perror("select:");
 			break;
 		}
 		else if(ret == 0) {
-			printf("***Timeout, connection canceled***\n");
 			for(i=0;i<FDCOUNT;i++) {
 				if(fd_a[i] != -1) {
+					printf("***Timeout, connection canceled, id = %d***\n", fd_a[i]);
 					close(fd_a[i]);
 					FD_CLR(fd_a[i], &clientfd);
 					fd_a[i] = -1;
@@ -80,9 +95,11 @@ int main(void)
 						continue;
 					gettimeofday(&start, NULL); /* Record the time when connect. */
 					timeuse[i] = start.tv_sec;
+
 					fd_a[i] = new_fd;
 					break;
 				}
+				
 				if(conn_amount<FDCOUNT) {
 					FD_SET(new_fd, &clientfd);
 					printf("new connection client %d\n", new_fd);
@@ -106,7 +123,6 @@ int main(void)
 				memset(buf, 0, MAXLINE);
 				n = read(fd_a[i], buf, MAXLINE);
 
-
 				if(n<=0 || !strcmp(buf, EXIT_MSG)) {
 					printf("client exit.id = %d\n", fd_a[i]);
 					close(fd_a[i]);
@@ -117,9 +133,10 @@ int main(void)
 				}
 				printf("\n---message from client---%d\n%s\n", fd_a[i], buf);
 
-				/* timeout judgement */		
-				gettimeofday(&start, NULL); /* get time of the day */
+				gettimeofday(&start, NULL); /* get active time for client */
 				timeuse[i] = start.tv_sec - timeuse[i];
+/*
+
 				if(timeuse[i] > TIME_SEC) {
 					printf("***Client Timeout, id = %d\n", fd_a[i]);
 					close(fd_a[i]);
@@ -130,6 +147,7 @@ int main(void)
 				}
 				else 
 					timeuse[i] = start.tv_sec;
+*/
 				x = strlen(buf);
 				memset(buf_client, 0, MAXLINE);
 				for (j = 0; x>=0; x--, j++)
