@@ -1,4 +1,6 @@
 /* server.c */
+#define _XOPEN_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,20 +9,23 @@
 #include <netinet/in.h>
 #include <sys/types.h>
 #include <sys/time.h>
+#include <poll.h>
+#include <sys/stropts.h>
 
 #include "common.h"
 
 int main(void)
 {
 	struct sockaddr_in servaddr, cliaddr;
-	struct timeval tv, start;
+	struct timespec tv; 
+	struct timeval start;
+	struct pollfd client[FDCOUNT];
     
 	socklen_t cliaddr_len;
 	int listenfd, new_fd;
 	char buf[MAXLINE], buf_client[MAXLINE];
 	int i, j, n, x, on,ret;
-	fd_set clientfd;
-	int maxsock, timeuse[FDCOUNT];
+	int maxi, timeuse[FDCOUNT];
 	
 /* ===========socket============== */
 	listenfd = Socket(AF_INET, SOCK_STREAM, 0);
@@ -38,74 +43,63 @@ int main(void)
 	Listen(listenfd, 20);
 
 	printf("~~~listen connections:\n");
-	int conn_amount = 0;
-	int fd_a[FDCOUNT];
-	maxsock = listenfd;
-	for(i=0;i<FDCOUNT;i++) {
-		gettimeofday(&start, NULL);
-		fd_a[i] = -1;
-		timeuse[i] = start.tv_sec;
+	client[0].fd = listenfd;
+	client[0].events = POLLRDNORM;
+	maxi = 0;
+	for(i=1;i<FDCOUNT;i++) {
+		gettimeofday(&start, NULL); /* Remreber current time  */
+		client[i].fd = -1;
+		timeuse[i] = start.tv_sec; /* Initialise timeout of clients */
 	}
 	
 	while(1) {
-		FD_ZERO(&clientfd);
-		FD_SET(listenfd, &clientfd);
 		tv.tv_sec = TIME_SEC;
-		tv.tv_usec = TIME_USEC;
+		tv.tv_nsec = TIME_NSEC;
 
-		for(i=0;i<FDCOUNT;i++) {
-			if(fd_a[i] != -1)
-				FD_SET(fd_a[i], &clientfd);
-		}
 		cliaddr_len = sizeof(cliaddr);
-		ret = select(maxsock+1, &clientfd, NULL, NULL, &tv);
-		/* check timeout */
-		for(i=0;i<FDCOUNT;i++) {
-			gettimeofday(&start, NULL);
-			timeuse[i] = start.tv_sec - timeuse[i];
-			if(fd_a[i] !=-1 && timeuse[i] > TIME_SEC) {
-				printf("***Client Timeout, id = %d\n", fd_a[i]);
-				close(fd_a[i]);
-				FD_CLR(fd_a[i], &clientfd);
-				fd_a[i] = -1;
-				timeuse[i] = 0;
-			}
-		}
-		if(ret<0) {
-			perror("select:");
-			break;
-		}
-		else if(ret == 0) {
-			for(i=0;i<FDCOUNT;i++) {
-				if(fd_a[i] != -1) {
-					printf("***Timeout, connection canceled, id = %d***\n", fd_a[i]);
-					close(fd_a[i]);
-					FD_CLR(fd_a[i], &clientfd);
-					fd_a[i] = -1;
+		ret = poll(client, maxi+1, TIME_SEC*1000); /* blocking */
+		if(ret == 0) {			/* Timeout of poll */
+			for(i=1;i<FDCOUNT;i++) {
+				if(client[i].fd != -1) {
+					printf("***Timeout, connection canceled, id = %d***\n", client[i].fd);
+					close(client[i].fd);
+					client[i].fd = -1;
+					timeuse[i] = 0;
 				}
 			}
-			conn_amount = 0;
+			maxi = 0;
 			continue;
 		}
-		else if(FD_ISSET(listenfd, &clientfd)){
+		/* check timeout*/
+		for(i=1;i<FDCOUNT;i++) {
+			if(client[i].fd != -1) {
+				gettimeofday(&start, NULL);
+				timeuse[i] = start.tv_sec - timeuse[i];
+				if(timeuse[i]>TIME_SEC) {
+					printf("*--**Client Timeout, id = %d\n", client[i].fd);
+					close(client[i].fd);
+					client[i].fd = -1;
+					timeuse[i] = 0;
+				}
+			}
+		}
+
+		if(client[0].revents & POLLRDNORM){
 			new_fd=Accept(listenfd,(struct sockaddr*)&cliaddr, cliaddr_len) ;
 			if(new_fd>0) {
-				for(i=0;i<FDCOUNT;i++) {
-					if(fd_a[i] != -1)
+				for(i=1;i<FDCOUNT;i++) {
+					if(client[i].fd != -1)
 						continue;
 					gettimeofday(&start, NULL); /* Record the time when connect. */
 					timeuse[i] = start.tv_sec;
-
-					fd_a[i] = new_fd;
+					client[i].fd = new_fd;
 					break;
 				}
-				
-				if(conn_amount<FDCOUNT) {
-					FD_SET(new_fd, &clientfd);
+				client[i].events = POLLRDNORM; /* make client pollrdnorm */
+				if(maxi<FDCOUNT) {
 					printf("new connection client %d\n", new_fd);
-					if(new_fd>maxsock)
-						maxsock = new_fd;
-					conn_amount++;
+					if(i>maxi)
+						maxi = i;
 				}
 				else {
 					printf("***max connections arrive, disconnect***\n");
@@ -115,51 +109,40 @@ int main(void)
 			}
 		}
 		else {
-			for(i=0;i<FDCOUNT;i++) {
-				if(fd_a[i] == -1)
+			for(i=1;i<=maxi;i++) {
+				if(client[i].fd == -1)
 					continue;
-				if(!FD_ISSET(fd_a[i], &clientfd))
-					continue;
-				memset(buf, 0, MAXLINE);
-				n = read(fd_a[i], buf, MAXLINE);
+				if(client[i].revents & (POLLERR | POLLIN | POLLRDNORM)) {
+					memset(buf, 0, MAXLINE);
+					n = read(client[i].fd, buf, MAXLINE);
+					if(n<=0 || !strcmp(buf, EXIT_MSG)) {
+						printf("client exit.id = %d\n", client[i].fd);
+						close(client[i].fd);
+						client[i].fd = -1;
+						continue;
+					}
+					printf("\n---message from client---%d %d\n%s\n", client[i].fd, listenfd, buf);
 
-				if(n<=0 || !strcmp(buf, EXIT_MSG)) {
-					printf("client exit.id = %d\n", fd_a[i]);
-					close(fd_a[i]);
-					FD_CLR(fd_a[i], &clientfd);
-					fd_a[i] = -1;
-					conn_amount--;
-					continue;
-				}
-				printf("\n---message from client---%d\n%s\n", fd_a[i], buf);
-
-				gettimeofday(&start, NULL); /* get active time for client */
-				timeuse[i] = start.tv_sec - timeuse[i];
-/*
-
-				if(timeuse[i] > TIME_SEC) {
-					printf("***Client Timeout, id = %d\n", fd_a[i]);
-					close(fd_a[i]);
-					FD_CLR(fd_a[i], &clientfd);
-					fd_a[i] = -1;
-					timeuse[i] = 0;
-					break;
-				}
-				else 
+					gettimeofday(&start, NULL); /* get active time for client */
 					timeuse[i] = start.tv_sec;
-*/
-				x = strlen(buf);
-				memset(buf_client, 0, MAXLINE);
-				for (j = 0; x>=0; x--, j++)
-					buf_client[j] = buf[x];
-				if((write(fd_a[i], buf_client, n)) == -1) {
-					perror("write_1:");
-					exit(1);
+
+					x = strlen(buf);
+					memset(buf_client, 0, MAXLINE);
+					for (j = 0; x>=0; x--, j++)
+						buf_client[j] = buf[x];
+					if((write(client[i].fd, buf_client, n)) == -1) {
+						perror("write_1:");
+						exit(1);
+					}
+					memset(buf, 0, MAXLINE);
+					memset(buf_client, 0, MAXLINE);
+					if(--ret<=0)
+						break;
 				}
-				memset(buf, 0, MAXLINE);
-				memset(buf_client, 0, MAXLINE);
 			}
+
 		}
+
 	}
 	close(listenfd);
 	exit(0);

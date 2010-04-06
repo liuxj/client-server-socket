@@ -1,9 +1,11 @@
 #define MAXLINE 1024
 #define SERV_PORT 4321
 #define EXIT_MSG "exit"
-#define TIME_SEC 60
-#define TIME_USEC 0
-#define FDCOUNT 5
+#define TIME_SEC 20
+#define TIME_NSEC 0
+#define FDCOUNT 5+1
+
+#include <poll.h>
 
 /* 包裹函数 */
 
@@ -54,3 +56,13 @@ int Accept(int sockfd, struct sockaddr *cliaddr, socklen_t addrlen)
 	}
 	return n;
 } /* accept */
+
+int Poll(struct pollfd *fdarray, unsigned long nfds, int timeout) {
+        int n;
+        if((n=poll(fdarray, nfds, timeout)) == -1) {
+                perror("poll:");
+                exit(1);
+        }
+        return n;
+} /* poll */
+                
